@@ -1,0 +1,6 @@
+{
+  "name": "ChessMaster Web",
+  "description": "Videojuego web completo de ajedrez inspirado en Chess.com con IA multinivel, reloj de partida, sistema de Elo (Bullet, Blitz, Rápido), cinemáticas narrativas y persistencia en Firebase Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

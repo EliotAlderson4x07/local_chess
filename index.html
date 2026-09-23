@@ -1,0 +1,2017 @@
+<!DOCTYPE html>
+<html lang="es" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChessMaster Web | Plataforma y Motor de Ajedrez Online</title>
+  <meta name="description" content="Juega ajedrez online al estilo Chess.com con IA multinivel, sistema de Elo en tiempo real, modo historia con cinemáticas y persistencia en Firestore." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            chessGreen: '#7fa650',
+            chessDarkGreen: '#537a38',
+            chessDark: '#312e2b',
+            chessDarker: '#262421',
+            chessLightSquare: '#ebecd0',
+            chessDarkSquare: '#7fa650',
+            chessPanel: '#21201d',
+            chessBorder: '#3f3c38'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts & Chess.js & Firebase CDN -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
+
+  <style>
+    body {
+      background-color: #262421;
+      color: #ffffff;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .board-grid {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      aspect-ratio: 1 / 1;
+    }
+    .square-light { background-color: #ebecd0; color: #7fa650; }
+    .square-dark  { background-color: #7fa650; color: #ebecd0; }
+    .square-selected { background-color: rgba(247, 247, 105, 0.7) !important; }
+    .square-lastmove { background-color: rgba(186, 202, 68, 0.6) !important; }
+    .square-check { background-color: rgba(239, 68, 68, 0.8) !important; animation: pulse 1.2s infinite; }
+    
+    .piece-img {
+      width: 88%;
+      height: 88%;
+      filter: drop-shadow(0 3px 3px rgba(0,0,0,0.35));
+      cursor: grab;
+      transition: transform 0.12s ease;
+    }
+    .piece-img:active {
+      cursor: grabbing;
+      transform: scale(1.12);
+    }
+    .move-dot {
+      width: 28%;
+      height: 28%;
+      border-radius: 9999px;
+      background-color: rgba(0, 0, 0, 0.22);
+      pointer-events: none;
+    }
+    .capture-ring {
+      position: absolute;
+      inset: 4px;
+      border: 5px solid rgba(0, 0, 0, 0.25);
+      border-radius: 9999px;
+      pointer-events: none;
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #262421; }
+    ::-webkit-scrollbar-thumb { background: #3f3c38; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #537a38; }
+  </style>
+</head>
+
+<body class="min-h-screen flex flex-col font-sans selection:bg-chessGreen selection:text-white">
+
+  <!-- ================= TOP NAVIGATION BAR ================= -->
+  <header class="bg-chessDark border-b border-chessBorder sticky top-0 z-40 px-4 py-2.5 flex items-center justify-between shadow-md">
+    <div class="flex items-center space-x-3">
+      <button onclick="switchView('play')" class="flex items-center space-x-2 text-left group">
+        <div class="w-9 h-9 bg-chessGreen rounded-lg flex items-center justify-center shadow-inner group-hover:scale-105 transition-transform">
+          <svg class="w-6 h-6 text-white" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 22H5a1 1 0 0 1-1-1v-2a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1zm-2-5H7l1.2-8.4A2 2 0 0 1 10.18 7h3.64a2 2 0 0 1 1.98 1.6L17 17zM12 2a2 2 0 0 1 2 2c0 .35-.09.68-.25.97l.85.85a1 1 0 0 1-1.41 1.41l-.7-.7-.7.7a1 1 0 0 1-1.41-1.41l.85-.85A2 2 0 0 1 12 2z"/>
+          </svg>
+        </div>
+        <div>
+          <span class="font-extrabold text-lg tracking-tight text-white flex items-center gap-1.5">
+            ChessMaster <span class="text-xs px-2 py-0.5 bg-chessGreen text-white font-bold rounded-full">WEB</span>
+          </span>
+          <p class="text-[11px] text-gray-400 -mt-1 hidden sm:block">Ajedrez Competitivo & Modo Historia</p>
+        </div>
+      </button>
+
+      <!-- Nav Tabs -->
+      <nav class="hidden md:flex items-center space-x-1 ml-6">
+        <button onclick="switchView('play')" id="nav-btn-play" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all bg-chessGreen text-white">Jugar</button>
+        <button onclick="switchView('story')" id="nav-btn-story" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all text-gray-300 hover:text-white hover:bg-chessBorder">Historia</button>
+        <button onclick="switchView('leaderboard')" id="nav-btn-leaderboard" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all text-gray-300 hover:text-white hover:bg-chessBorder">Clasificación</button>
+        <button onclick="openProfileModal()" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all text-gray-300 hover:text-white hover:bg-chessBorder">Mi Perfil</button>
+      </nav>
+    </div>
+
+    <!-- Quick Profile & Audio Toggle -->
+    <div class="flex items-center space-x-3">
+      <button onclick="toggleSound()" id="sound-btn" title="Silenciar / Activar Sonido" class="p-2 text-gray-300 hover:text-white bg-chessDarker hover:bg-chessBorder rounded-lg border border-chessBorder transition">
+        <span id="sound-icon">🔊</span>
+      </button>
+
+      <div onclick="openProfileModal()" class="flex items-center space-x-2 bg-chessDarker hover:bg-chessBorder px-3 py-1.5 rounded-xl border border-chessBorder cursor-pointer transition">
+        <img id="nav-user-avatar" src="" alt="Avatar" class="w-7 h-7 rounded-full bg-chessGreen border border-white/20 object-cover" />
+        <div class="text-left">
+          <div class="text-xs font-bold text-white leading-none" id="nav-user-nick">Invitado</div>
+          <div class="text-[10px] text-chessGreen font-semibold mt-0.5 leading-none">
+            <span id="nav-user-elo-tag">⚡ 800</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Mobile Bottom Navigation Bar -->
+  <div class="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-chessDark border-t border-chessBorder flex justify-around py-2 px-1">
+    <button onclick="switchView('play')" class="flex flex-col items-center text-xs font-semibold text-chessGreen">
+      <span class="text-lg">♟️</span> Jugar
+    </button>
+    <button onclick="switchView('story')" class="flex flex-col items-center text-xs font-semibold text-gray-400 hover:text-white">
+      <span class="text-lg">⚔️</span> Historia
+    </button>
+    <button onclick="switchView('leaderboard')" class="flex flex-col items-center text-xs font-semibold text-gray-400 hover:text-white">
+      <span class="text-lg">🏆</span> Ranking
+    </button>
+    <button onclick="openProfileModal()" class="flex flex-col items-center text-xs font-semibold text-gray-400 hover:text-white">
+      <span class="text-lg">👤</span> Perfil
+    </button>
+  </div>
+
+  <!-- ================= MAIN CONTENT VIEWS ================= -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-4 pb-16 md:pb-6 flex flex-col justify-center">
+
+    <!-- 1. VISTA DE JUEGO (PLAY VIEW) -->
+    <section id="view-play" class="w-full flex flex-col lg:flex-row gap-4 items-center lg:items-start justify-center">
+      
+      <!-- CONTENEDOR DEL TABLERO Y HUD DE JUGADORES -->
+      <div class="w-full max-w-[580px] flex flex-col gap-2">
+        
+        <!-- OPONENTE INFO BAR -->
+        <div class="bg-chessDark border border-chessBorder rounded-xl p-2.5 flex items-center justify-between shadow-sm">
+          <div class="flex items-center space-x-3">
+            <img id="opponent-avatar" src="" alt="Oponente" class="w-10 h-10 rounded-lg bg-chessDarker object-cover border border-chessBorder" />
+            <div>
+              <div class="flex items-center space-x-2">
+                <span id="opponent-name" class="font-bold text-sm text-white">Bot ChessMaster</span>
+                <span id="opponent-difficulty-badge" class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">Medio</span>
+              </div>
+              <!-- Capturas y ventaja -->
+              <div class="flex items-center space-x-1.5 text-xs text-gray-400 mt-0.5">
+                <span id="opponent-rating" class="font-mono text-gray-300 font-medium">Elo 1100</span>
+                <div id="opponent-captures" class="flex items-center space-x-0.5 text-sm ml-2"></div>
+                <span id="opponent-advantage" class="text-[11px] font-bold text-chessGreen font-mono"></span>
+              </div>
+            </div>
+          </div>
+          <!-- Reloj Oponente -->
+          <div id="opponent-clock" class="bg-chessDarker px-3.5 py-1.5 rounded-lg border border-chessBorder font-mono font-bold text-xl sm:text-2xl text-white shadow-inner tracking-wider">
+            03:00
+          </div>
+        </div>
+
+        <!-- TABLERO DE AJEDREZ 8x8 -->
+        <div class="relative bg-chessDarker p-2 rounded-2xl shadow-2xl border-2 border-chessBorder">
+          <div id="board" class="board-grid rounded-xl overflow-hidden shadow-inner border border-black/30 relative">
+            <!-- 64 casillas generadas dinámicamente -->
+          </div>
+
+          <!-- Overlay de Jaque Mate / Game Over -->
+          <div id="game-overlay" class="absolute inset-0 bg-black/80 backdrop-blur-sm rounded-2xl hidden flex-col items-center justify-center p-6 text-center z-20">
+            <div id="overlay-badge" class="w-16 h-16 rounded-full bg-chessGreen/20 border-2 border-chessGreen flex items-center justify-center text-3xl mb-3 shadow-lg">
+              🏆
+            </div>
+            <h2 id="overlay-title" class="text-2xl sm:text-3xl font-extrabold text-white mb-1">¡Victoria por Jaque Mate!</h2>
+            <p id="overlay-desc" class="text-sm text-gray-300 max-w-sm mb-4">Gran partida. Has demostrado superioridad táctica.</p>
+            
+            <div class="bg-chessDark border border-chessBorder rounded-xl p-3 w-full max-w-xs mb-5 flex items-center justify-around">
+              <div>
+                <span class="text-xs text-gray-400 block">Modo</span>
+                <span id="overlay-mode" class="font-bold text-sm text-white">Blitz</span>
+              </div>
+              <div class="h-8 w-px bg-chessBorder"></div>
+              <div>
+                <span class="text-xs text-gray-400 block">Variación Elo</span>
+                <span id="overlay-elo-delta" class="font-mono font-extrabold text-base text-chessGreen">+16</span>
+              </div>
+              <div class="h-8 w-px bg-chessBorder"></div>
+              <div>
+                <span class="text-xs text-gray-400 block">Nuevo Elo</span>
+                <span id="overlay-new-elo" class="font-mono font-extrabold text-base text-white">816</span>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-3">
+              <button onclick="startNewGame()" class="px-5 py-2.5 rounded-xl bg-chessGreen hover:bg-chessDarkGreen text-white font-bold shadow-lg transition transform hover:-translate-y-0.5">
+                Revancha / Jugar Otra
+              </button>
+              <button onclick="hideOverlay()" class="px-4 py-2.5 rounded-xl bg-chessDark hover:bg-chessBorder text-gray-300 font-semibold border border-chessBorder transition">
+                Ver Tablero
+              </button>
+            </div>
+          </div>
+
+          <!-- Modal de Coronación de Peón -->
+          <div id="promotion-modal" class="absolute inset-0 bg-black/75 backdrop-blur-xs rounded-2xl hidden flex-col items-center justify-center z-30">
+            <div class="bg-chessDark p-4 rounded-2xl border-2 border-chessGreen shadow-2xl text-center">
+              <h3 class="font-bold text-white text-base mb-3">Elige pieza de coronación</h3>
+              <div class="flex space-x-2" id="promotion-options">
+                <!-- Generado por JS -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- JUGADOR INFO BAR -->
+        <div class="bg-chessDark border border-chessBorder rounded-xl p-2.5 flex items-center justify-between shadow-sm">
+          <div class="flex items-center space-x-3">
+            <img id="player-avatar" src="" alt="Tú" class="w-10 h-10 rounded-lg bg-chessGreen object-cover border border-chessBorder" />
+            <div>
+              <div class="flex items-center space-x-2">
+                <span id="player-name" class="font-bold text-sm text-white">Tú</span>
+                <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-chessGreen/20 text-chessGreen border border-chessGreen/30">Tú (Blancas)</span>
+              </div>
+              <div class="flex items-center space-x-1.5 text-xs text-gray-400 mt-0.5">
+                <span id="player-rating" class="font-mono text-gray-300 font-medium">Elo 800</span>
+                <div id="player-captures" class="flex items-center space-x-0.5 text-sm ml-2"></div>
+                <span id="player-advantage" class="text-[11px] font-bold text-chessGreen font-mono"></span>
+              </div>
+            </div>
+          </div>
+          <!-- Reloj Jugador -->
+          <div id="player-clock" class="bg-chessDarker px-3.5 py-1.5 rounded-lg border border-chessBorder font-mono font-bold text-xl sm:text-2xl text-white shadow-inner tracking-wider">
+            03:00
+          </div>
+        </div>
+
+      </div>
+
+      <!-- PANEL LATERAL DE CONTROLES, MODALIDADES E HISTORIAL -->
+      <div class="w-full lg:w-[380px] flex flex-col gap-3">
+        
+        <!-- ESTADO DE LA PARTIDA Y ACCIONES RÁPIDAS -->
+        <div class="bg-chessDark border border-chessBorder rounded-2xl p-4 shadow-md flex flex-col gap-3">
+          
+          <div class="flex items-center justify-between pb-2 border-b border-chessBorder">
+            <div class="flex items-center space-x-2">
+              <span id="turn-bullet" class="w-3 h-3 rounded-full bg-chessGreen animate-ping"></span>
+              <span id="turn-status-text" class="font-bold text-sm text-white">Tu turno (Blancas)</span>
+            </div>
+            <span id="eval-indicator" class="text-xs font-mono font-semibold text-gray-400 bg-chessDarker px-2 py-0.5 rounded border border-chessBorder">0.0</span>
+          </div>
+
+          <!-- Selectores de Modalidad y Dificultad -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Modalidad (Reloj)</label>
+              <select id="select-mode" onchange="changeGameMode(this.value)" class="w-full bg-chessDarker text-white text-xs font-semibold py-2 px-2.5 rounded-xl border border-chessBorder focus:outline-none focus:border-chessGreen cursor-pointer">
+                <option value="bullet">⚡ Bullet (1 min)</option>
+                <option value="blitz" selected>🔥 Blitz (3 min)</option>
+                <option value="rapid">⏱️ Rápido (10 min)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[11px] font-bold uppercase tracking-wider text-gray-400 block mb-1">Dificultad IA</label>
+              <select id="select-difficulty" onchange="changeDifficulty(this.value)" class="w-full bg-chessDarker text-white text-xs font-semibold py-2 px-2.5 rounded-xl border border-chessBorder focus:outline-none focus:border-chessGreen cursor-pointer">
+                <option value="easy">Novato (~600 Elo)</option>
+                <option value="medium" selected>Intermedio (~1100 Elo)</option>
+                <option value="hard">Gran Maestro (~1600+ Elo)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Botones de Acción en Partida -->
+          <div class="grid grid-cols-3 gap-2 pt-1">
+            <button onclick="startNewGame()" class="py-2 px-2 bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1 shadow">
+              <span>🔄</span> Reiniciar
+            </button>
+            <button onclick="offerDraw()" class="py-2 px-2 bg-chessDarker hover:bg-chessBorder text-gray-200 text-xs font-semibold rounded-xl border border-chessBorder transition flex items-center justify-center gap-1">
+              <span>🤝</span> Tablas
+            </button>
+            <button onclick="resignGame()" class="py-2 px-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-semibold rounded-xl border border-red-800/40 transition flex items-center justify-center gap-1">
+              <span>🏳️</span> Rendirse
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between text-xs text-gray-400 px-1 pt-1">
+            <button onclick="flipBoard()" class="hover:text-white flex items-center gap-1">
+              <span>🔃</span> Voltear tablero
+            </button>
+            <span id="opening-detected" class="text-[11px] font-medium text-chessGreen truncate max-w-[180px]">Apertura estándar</span>
+          </div>
+        </div>
+
+        <!-- NOTACIÓN E HISTORIAL DE MOVIMIENTOS -->
+        <div class="bg-chessDark border border-chessBorder rounded-2xl p-4 shadow-md flex-1 flex flex-col min-h-[220px]">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="font-bold text-sm text-gray-200 flex items-center gap-1.5">
+              <span>📋</span> Registro de Movimientos
+            </h3>
+            <span id="move-count-badge" class="text-xs bg-chessDarker px-2 py-0.5 rounded text-gray-400 font-mono">0 jugadas</span>
+          </div>
+
+          <div id="moves-history" class="flex-1 max-h-[230px] overflow-y-auto bg-chessDarker rounded-xl p-2.5 font-mono text-xs text-gray-300 space-y-1 border border-chessBorder">
+            <div class="text-gray-500 italic text-center py-6">Las jugadas aparecerán aquí...</div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- 2. VISTA DE HISTORIA Y CINEMÁTICAS (STORY VIEW) -->
+    <section id="view-story" class="w-full hidden flex-col items-center">
+      <div class="w-full max-w-4xl bg-chessDark border border-chessBorder rounded-3xl p-6 sm:p-8 shadow-2xl">
+        
+        <!-- Portada / Banner Multimedia -->
+        <div class="relative w-full h-48 sm:h-64 rounded-2xl overflow-hidden mb-6 bg-chessDarker border border-chessBorder flex items-center justify-center">
+          <img src="assets/portada.jpg" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1529699211952-734e80c4d42b?auto=format&fit=crop&w=1200&q=80'" alt="Portada Historia" class="w-full h-full object-cover brightness-75" />
+          <div class="absolute inset-0 bg-gradient-to-t from-chessDark via-chessDark/40 to-transparent flex flex-col justify-end p-6">
+            <span class="text-chessGreen font-mono text-xs font-bold uppercase tracking-wider">Modo Campaña</span>
+            <h2 class="text-2xl sm:text-4xl font-extrabold text-white">Crónicas del Tablero: El Ascenso</h2>
+            <p class="text-gray-300 text-xs sm:text-sm mt-1 max-w-xl">Supera 3 pruebas tácticas para coronarte Maestro Supremo de Caissa.</p>
+          </div>
+        </div>
+
+        <!-- Misiones Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          
+          <!-- Misión 1 -->
+          <div id="mission-card-1" class="bg-chessDarker p-5 rounded-2xl border-2 border-chessGreen relative flex flex-col justify-between">
+            <div class="absolute -top-3 left-4 bg-chessGreen text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              Disponible
+            </div>
+            <div>
+              <div class="text-3xl mb-2 mt-1">♟️</div>
+              <h3 class="font-bold text-white text-base">Misión 1: Peón Rebelde</h3>
+              <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                Un contingente de peones fronterizos intenta rebelarse. Restablece la disciplina con solidez posicional.
+              </p>
+              <div class="mt-3 flex items-center gap-2 text-xs font-semibold text-gray-300">
+                <span class="text-amber-400">★☆☆</span> Dificultad: Novato
+              </div>
+            </div>
+            <button onclick="launchMission(1)" class="mt-4 w-full py-2 bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold rounded-xl transition shadow">
+              Iniciar Misión
+            </button>
+          </div>
+
+          <!-- Misión 2 -->
+          <div id="mission-card-2" class="bg-chessDarker p-5 rounded-2xl border border-chessBorder relative flex flex-col justify-between opacity-80">
+            <div id="mission-badge-2" class="absolute -top-3 left-4 bg-gray-600 text-gray-200 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              Bloqueada
+            </div>
+            <div>
+              <div class="text-3xl mb-2 mt-1">♞</div>
+              <h3 class="font-bold text-white text-base">Misión 2: Emboscada de Caballos</h3>
+              <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                La caballería pesada acecha desde casillas oscuras con horquillas letales. Requiere visión táctica aguda.
+              </p>
+              <div class="mt-3 flex items-center gap-2 text-xs font-semibold text-gray-300">
+                <span class="text-amber-400">★★☆</span> Dificultad: Intermedio
+              </div>
+            </div>
+            <button id="mission-btn-2" onclick="launchMission(2)" disabled class="mt-4 w-full py-2 bg-chessBorder text-gray-500 text-xs font-bold rounded-xl cursor-not-allowed">
+              Completa Misión 1
+            </button>
+          </div>
+
+          <!-- Misión 3 -->
+          <div id="mission-card-3" class="bg-chessDarker p-5 rounded-2xl border border-chessBorder relative flex flex-col justify-between opacity-80">
+            <div id="mission-badge-3" class="absolute -top-3 left-4 bg-gray-600 text-gray-200 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              Bloqueada
+            </div>
+            <div>
+              <div class="text-3xl mb-2 mt-1">👑</div>
+              <h3 class="font-bold text-white text-base">Misión 3: Jaque al Gran Maestro</h3>
+              <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+                El salón del trono se abre. Enfréntate al Gran Maestro supremo en el duelo definitivo de la corona.
+              </p>
+              <div class="mt-3 flex items-center gap-2 text-xs font-semibold text-gray-300">
+                <span class="text-amber-400">★★★</span> Dificultad: Gran Maestro
+              </div>
+            </div>
+            <button id="mission-btn-3" onclick="launchMission(3)" disabled class="mt-4 w-full py-2 bg-chessBorder text-gray-500 text-xs font-bold rounded-xl cursor-not-allowed">
+              Completa Misión 2
+            </button>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3. VISTA DE CLASIFICACIÓN / LEADERBOARD (LEADERBOARD VIEW) -->
+    <section id="view-leaderboard" class="w-full hidden flex-col items-center">
+      <div class="w-full max-w-4xl bg-chessDark border border-chessBorder rounded-3xl p-5 sm:p-7 shadow-2xl">
+        
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-chessBorder">
+          <div>
+            <h2 class="text-2xl font-extrabold text-white flex items-center gap-2">
+              <span>🏆</span> Leaderboard Global / Colegio
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">Top 10 jugadores en tiempo real sincronizados en Firestore</p>
+          </div>
+
+          <!-- Filtro de modalidad para el ranking -->
+          <div class="flex items-center bg-chessDarker p-1 rounded-xl border border-chessBorder">
+            <button onclick="setLeaderboardFilter('bullet')" id="lb-tab-bullet" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-gray-400 hover:text-white">⚡ Bullet</button>
+            <button onclick="setLeaderboardFilter('blitz')" id="lb-tab-blitz" class="px-3 py-1.5 rounded-lg text-xs font-bold transition bg-chessGreen text-white shadow">🔥 Blitz</button>
+            <button onclick="setLeaderboardFilter('rapid')" id="lb-tab-rapid" class="px-3 py-1.5 rounded-lg text-xs font-bold transition text-gray-400 hover:text-white">⏱️ Rápido</button>
+          </div>
+        </div>
+
+        <!-- Tabla de posiciones -->
+        <div class="mt-4 overflow-x-auto">
+          <table class="w-full text-left text-xs sm:text-sm">
+            <thead>
+              <tr class="text-gray-400 border-b border-chessBorder font-semibold">
+                <th class="py-2.5 px-3">#</th>
+                <th class="py-2.5 px-3">Jugador</th>
+                <th class="py-2.5 px-3">Apertura Favorita</th>
+                <th class="py-2.5 px-3 text-right">Calificación Elo</th>
+                <th class="py-2.5 px-3 text-center">Acción</th>
+              </tr>
+            </thead>
+            <tbody id="leaderboard-body" class="divide-y divide-chessBorder/50 font-medium">
+              <!-- Renderizado por JS -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-4 p-3 bg-chessDarker rounded-xl border border-chessBorder flex items-center justify-between text-xs text-gray-400">
+          <span class="flex items-center gap-1.5">
+            <span id="firestore-status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span id="firestore-status-label">Sincronizado con Firebase Firestore</span>
+          </span>
+          <button onclick="refreshLeaderboard()" class="text-chessGreen hover:underline font-semibold">
+            Actualizar datos
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= MODALES DEL SISTEMA ================= -->
+
+  <!-- MODAL DE PERFIL Y AMIGOS -->
+  <div id="modal-profile" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-chessDark border border-chessBorder w-full max-w-lg rounded-3xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+      
+      <div class="flex items-center justify-between pb-3 border-b border-chessBorder">
+        <h3 class="text-lg font-extrabold text-white flex items-center gap-2">
+          <span>👤</span> Perfil de Jugador
+        </h3>
+        <button onclick="closeProfileModal()" class="text-gray-400 hover:text-white text-lg font-bold">✕</button>
+      </div>
+
+      <div class="mt-4 space-y-4">
+        
+        <!-- Nickname -->
+        <div>
+          <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Nickname / Usuario</label>
+          <input type="text" id="profile-input-nick" maxlength="20" class="w-full bg-chessDarker border border-chessBorder rounded-xl px-3.5 py-2 text-white font-semibold text-sm focus:outline-none focus:border-chessGreen" placeholder="Tu apodo de ajedrecista..." />
+        </div>
+
+        <!-- Selección de Avatar (5 predefinidos o URL) -->
+        <div>
+          <label class="block text-xs font-bold text-gray-300 uppercase mb-2">Selecciona Avatar</label>
+          <div class="flex items-center space-x-3 mb-2" id="avatar-presets">
+            <!-- 5 Avatares predefinidos generados dinámicamente -->
+          </div>
+          <input type="url" id="profile-input-avatar-url" placeholder="O pega la URL de tu imagen personalizada..." class="w-full bg-chessDarker border border-chessBorder rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-chessGreen" />
+        </div>
+
+        <!-- Apertura favorita -->
+        <div>
+          <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Apertura Favorita</label>
+          <select id="profile-select-opening" class="w-full bg-chessDarker border border-chessBorder rounded-xl px-3 py-2 text-white text-sm font-semibold focus:outline-none focus:border-chessGreen cursor-pointer">
+            <option value="Defensa Siciliana">Defensa Siciliana (1. e4 c5)</option>
+            <option value="Apertura Ruy López">Apertura Española / Ruy López (1. e4 e5 2. Nf3 Nc6 3. Bb5)</option>
+            <option value="Gambito de Dama">Gambito de Dama (1. d4 d5 2. c4)</option>
+            <option value="Defensa Francesa">Defensa Francesa (1. e4 e6)</option>
+            <option value="Defensa Caro-Kann">Defensa Caro-Kann (1. e4 c6)</option>
+            <option value="Defensa India de Rey">Defensa India de Rey (1. d4 Nf6 2. c4 g6)</option>
+            <option value="Apertura Italiana">Apertura Italiana (1. e4 e5 2. Nf3 Nc6 3. Bc4)</option>
+            <option value="Sistema Londres">Sistema Londres (1. d4 y 2. Bf4)</option>
+          </select>
+        </div>
+
+        <!-- Biografía corta -->
+        <div>
+          <label class="block text-xs font-bold text-gray-300 uppercase mb-1">Biografía Corta</label>
+          <textarea id="profile-input-bio" rows="2" maxlength="120" placeholder="Escribe tu lema o breve descripción de juego..." class="w-full bg-chessDarker border border-chessBorder rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-chessGreen"></textarea>
+        </div>
+
+        <!-- Estadísticas de Elo Independientes -->
+        <div class="bg-chessDarker p-3.5 rounded-2xl border border-chessBorder">
+          <span class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Calificaciones Elo</span>
+          <div class="grid grid-cols-3 gap-2 text-center font-mono">
+            <div class="bg-chessDark p-2 rounded-xl border border-chessBorder">
+              <span class="text-[10px] text-gray-400 block font-sans">⚡ Bullet</span>
+              <span id="stats-elo-bullet" class="font-extrabold text-base text-yellow-400">800</span>
+            </div>
+            <div class="bg-chessDark p-2 rounded-xl border border-chessBorder">
+              <span class="text-[10px] text-gray-400 block font-sans">🔥 Blitz</span>
+              <span id="stats-elo-blitz" class="font-extrabold text-base text-chessGreen">800</span>
+            </div>
+            <div class="bg-chessDark p-2 rounded-xl border border-chessBorder">
+              <span class="text-[10px] text-gray-400 block font-sans">⏱️ Rápido</span>
+              <span id="stats-elo-rapid" class="font-extrabold text-base text-sky-400">800</span>
+            </div>
+          </div>
+          <div class="flex justify-between items-center text-xs text-gray-400 mt-2 px-1">
+            <span>Partidas jugadas: <b id="stats-games-count" class="text-white">0</b></span>
+            <span>Victorias: <b id="stats-wins-count" class="text-white">0</b></span>
+          </div>
+        </div>
+
+        <!-- SISTEMA DE AMIGOS -->
+        <div class="bg-chessDarker p-3.5 rounded-2xl border border-chessBorder">
+          <span class="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Sistema de Amigos</span>
+          
+          <div class="flex space-x-2 mb-3">
+            <input type="text" id="friend-search-input" placeholder="Nickname a añadir..." class="flex-1 bg-chessDark border border-chessBorder rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-chessGreen" />
+            <button onclick="addFriendFromInput()" class="bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold px-3 py-1.5 rounded-xl transition">
+              Añadir
+            </button>
+          </div>
+
+          <div id="friends-list-container" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+            <!-- Amigos renderizados aquí -->
+          </div>
+        </div>
+
+        <div class="pt-2 flex justify-end space-x-2">
+          <button onclick="saveUserProfile()" class="w-full py-2.5 bg-chessGreen hover:bg-chessDarkGreen text-white font-bold text-sm rounded-xl transition shadow-lg">
+            Guardar Cambios
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL CINEMÁTICA / NARRATIVA (FASE INTEGRADORA) -->
+  <div id="modal-cinematic" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-4">
+    <div class="w-full max-w-2xl bg-chessDark border-2 border-chessGreen rounded-3xl overflow-hidden shadow-2xl relative">
+      
+      <!-- Video / Gif Container con Fallback -->
+      <div class="w-full h-64 sm:h-80 bg-black relative flex items-center justify-center overflow-hidden">
+        <video id="cinematic-video" class="w-full h-full object-cover hidden" playsinline muted loop>
+          <source src="assets/intro.mp4" type="video/mp4">
+        </video>
+        <img id="cinematic-img" src="assets/intro.gif" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1586165368502-1bad197a6461?auto=format&fit=crop&w=1200&q=80'" alt="Cinemática" class="w-full h-full object-cover" />
+        
+        <!-- Badge de Misión -->
+        <div class="absolute top-4 left-4 bg-chessGreen/90 text-white font-mono text-xs font-extrabold px-3 py-1 rounded-full uppercase tracking-wider shadow">
+          <span id="cinematic-mission-tag">Misión 1</span>
+        </div>
+      </div>
+
+      <!-- Cuadro de Diálogo Superpuesto Estilo Novela Gráfica / RPG -->
+      <div class="p-6 bg-chessDark border-t border-chessBorder flex flex-col justify-between">
+        <div class="flex items-start space-x-4 mb-4">
+          <div id="cinematic-speaker-avatar" class="w-12 h-12 rounded-xl bg-chessGreen flex-shrink-0 flex items-center justify-center text-2xl border border-white/20 shadow">
+            🧙‍♂️
+          </div>
+          <div>
+            <div id="cinematic-speaker-name" class="font-extrabold text-sm text-chessGreen">Maestro Caissa</div>
+            <p id="cinematic-dialog-text" class="text-sm text-gray-200 mt-1 leading-relaxed">
+              "El tablero refleja la mente del estratega. Antes de mover, observa las intenciones ocultas de tu rival."
+            </p>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-chessBorder">
+          <button onclick="skipCinematic()" class="text-xs text-gray-400 hover:text-white transition">
+            Saltar cinemática ➔
+          </button>
+          <button onclick="continueFromCinematic()" id="cinematic-continue-btn" class="px-5 py-2 bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold rounded-xl transition shadow">
+            Comenzar Partida ⚔️
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL DE RESULTADO DE MISIÓN (VICTORIA / DERROTA CON ASSETS) -->
+  <div id="modal-mission-result" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-4">
+    <div class="w-full max-w-md bg-chessDark border border-chessBorder rounded-3xl overflow-hidden shadow-2xl text-center">
+      <div class="w-full h-44 bg-black relative">
+        <img id="mission-result-img" src="assets/victoria.jpg" onerror="this.onerror=null; this.src='https://images.unsplash.com/photo-1529699211952-734e80c4d42b?auto=format&fit=crop&w=800&q=80'" alt="Resultado" class="w-full h-full object-cover" />
+        <div class="absolute inset-0 bg-gradient-to-t from-chessDark to-transparent"></div>
+      </div>
+      <div class="p-6 -mt-8 relative">
+        <div id="mission-result-icon" class="w-14 h-14 mx-auto rounded-2xl bg-chessGreen border-2 border-white flex items-center justify-center text-3xl shadow-lg mb-3">
+          👑
+        </div>
+        <h3 id="mission-result-title" class="text-2xl font-extrabold text-white">¡Misión Cumplida!</h3>
+        <p id="mission-result-desc" class="text-xs text-gray-300 mt-1 mb-5">Has desarticulado el motín y demostrado tu supremacía táctica.</p>
+        <button onclick="closeMissionResult()" class="w-full py-2.5 bg-chessGreen hover:bg-chessDarkGreen text-white font-bold text-sm rounded-xl transition shadow-lg">
+          Continuar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= JAVASCRIPT MONOLÍTICO ================= -->
+  <script>
+    /* ==========================================================================
+       CONFIGURACIÓN DE FIREBASE FIRESTORE
+       Coloca aquí las credenciales de tu proyecto Firebase.
+       Si se dejan los valores por defecto o falla la conexión, la aplicación
+       usará automáticamente persistencia LocalStorage sin interrupciones.
+       ========================================================================== */
+    const firebaseConfig = {
+      apiKey: "AIzaSy_CAMBIA_ESTO_POR_TU_API_KEY",
+      authDomain: "chessmaster-web.firebaseapp.com",
+      projectId: "chessmaster-web",
+      storageBucket: "chessmaster-web.appspot.com",
+      messagingSenderId: "123456789012",
+      appId: "1:123456789012:web:abcdef1234567890"
+    };
+
+    let db = null;
+    let isFirebaseReady = false;
+
+    try {
+      if (typeof firebase !== 'undefined' && firebaseConfig.apiKey && !firebaseConfig.apiKey.includes('CAMBIA_ESTO')) {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        isFirebaseReady = true;
+        console.log("Firebase Firestore inicializado exitosamente.");
+      } else {
+        console.warn("Firebase config en modo demostración. Se usará LocalStorage para persistencia reactiva.");
+      }
+    } catch (err) {
+      console.warn("Error al inicializar Firebase, usando fallback local:", err);
+    }
+
+    // ================= SISTEMA DE AUDIO (WEB AUDIO API SINTETIZADO) =================
+    let audioContext = null;
+    let isSoundMuted = false;
+
+    function initAudio() {
+      if (!audioContext) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) audioContext = new AudioCtx();
+      }
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+    }
+
+    function playTone(freq, type, duration, gainVal = 0.15) {
+      if (isSoundMuted) return;
+      try {
+        initAudio();
+        if (!audioContext) return;
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+        gain.gain.setValueAtTime(gainVal, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        osc.start();
+        osc.stop(audioContext.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function playMoveSound() {
+      playTone(320, 'triangle', 0.08, 0.2);
+    }
+    function playCaptureSound() {
+      playTone(180, 'square', 0.12, 0.25);
+    }
+    function playCheckSound() {
+      playTone(680, 'sine', 0.18, 0.3);
+      setTimeout(() => playTone(840, 'sine', 0.2, 0.25), 100);
+    }
+    function playGameOverSound(isWin) {
+      if (isWin) {
+        [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+          setTimeout(() => playTone(f, 'triangle', 0.25, 0.2), i * 120);
+        });
+      } else {
+        [440, 392, 349, 293].forEach((f, i) => {
+          setTimeout(() => playTone(f, 'sawtooth', 0.3, 0.2), i * 150);
+        });
+      }
+    }
+
+    function toggleSound() {
+      isSoundMuted = !isSoundMuted;
+      document.getElementById('sound-icon').innerText = isSoundMuted ? '🔇' : '🔊';
+    }
+
+    // ================= PIEZAS SVG ESTILIZADAS =================
+    const PIECE_SVGS = {
+      'wP': '<svg viewBox="0 0 45 45"><path d="m 22.5,9 c -2.21,0 -4,1.79 -4,4 0,0.89 0.29,1.71 0.78,2.38 C 17.33,16.5 16,18.59 16,21 c 0,2.03 0.94,3.84 2.41,5.03 C 15.41,27.09 11,31.58 11,39.5 l 23,0 c 0,-7.92 -4.41,-12.41 -7.41,-13.47 C 28.06,24.84 29,23.03 29,21 29,18.59 27.67,16.5 25.72,15.38 26.21,14.71 26.5,13.89 26.5,13 c 0,-2.21 -1.79,-4 -4,-4 z" fill="#fff" stroke="#111" stroke-width="1.6" stroke-linecap="round"/></svg>',
+      'wN': '<svg viewBox="0 0 45 45"><path d="m 22,10 c 10.5,1 16.5,8 16,29 L 15,39 C 15,30 18,25 21,23 15,22 13,17 14,14 15,11 18,10 22,10 z" fill="#fff" stroke="#111" stroke-width="1.6"/><circle cx="20" cy="15" r="1.5" fill="#111"/></svg>',
+      'wB': '<svg viewBox="0 0 45 45"><path d="m 9,36 c 3.39,-0.97 10.11,0.43 13.5,-2 3.39,2.43 10.11,1.03 13.5,2 0,0 1.65,0.54 3,2 -0.68,0.97 -1.65,0.99 -3,1 -5.5,0 -14,-0.5 -24,0 -1.35,-0.01 -2.32,-0.03 -3,-1 1.35,-1.46 3,-2 3,-2 z" fill="#fff" stroke="#111" stroke-width="1.5"/><path d="m 15,32 c 2.5,2.5 12.5,2.5 15,0 .5,-1.5 0,-2 0,-2 0,-7.5 -2.5,-16 -7.5,-20 -5,4 -7.5,12.5 -7.5,20 0,0 -.5,.5 0,2 z" fill="#fff" stroke="#111" stroke-width="1.5"/><circle cx="22.5" cy="8" r="2" fill="#fff" stroke="#111" stroke-width="1.5"/></svg>',
+      'wR': '<svg viewBox="0 0 45 45"><path d="m 9,39 27,0 0,-3 -3,-2 0,-16 3,-2 0,-5 -4,0 0,3 -4,0 0,-3 -5,0 0,3 -4,0 0,-3 -7,0 0,5 3,2 0,16 -3,2 0,3 z" fill="#fff" stroke="#111" stroke-width="1.5"/><path d="m 12,36 21,0 m -18,-18 15,0" fill="none" stroke="#111" stroke-width="1.2"/></svg>',
+      'wQ': '<svg viewBox="0 0 45 45"><path d="m 9,26 c 8.5,-1.5 21,-1.5 27,0 l 2,-12 -7,5 -4,-8 -4.5,8 -7,-5 2.5,12 z" fill="#fff" stroke="#111" stroke-width="1.5"/><path d="m 9,26 c 0,2 1.5,2 2.5,4 1,1.5 1,1 0.5,3.5 -1.5,1 -1.5,2.5 -1.5,2.5 -1.5,1.5 0.5,2.5 0.5,2.5 6.5,1 16.5,1 23,0 0,0 1.5,-1 0.5,-2.5 0,0 0,-1.5 -1.5,-2.5 -0.5,-2.5 -0.5,-2 0.5,-3.5 1,-2 2.5,-2 2.5,-4-8.5,-1.5 -18.5,-1.5 -27,0 z" fill="#fff" stroke="#111" stroke-width="1.5"/><circle cx="6" cy="12" r="2" fill="#fff" stroke="#111"/><circle cx="14" cy="9" r="2" fill="#fff" stroke="#111"/><circle cx="22.5" cy="6" r="2" fill="#fff" stroke="#111"/><circle cx="31" cy="9" r="2" fill="#fff" stroke="#111"/><circle cx="39" cy="12" r="2" fill="#fff" stroke="#111"/></svg>',
+      'wK': '<svg viewBox="0 0 45 45"><path d="m 22.5,11.63 0,5.38 M 20,13.5 l 5,0" fill="none" stroke="#111" stroke-width="1.8"/><path d="m 22.5,25 c 0,0 4.5,-7.5 3,-10.5 -1.5,-3 -6,-3 -7.5,0 -1.5,3 3,10.5 3,10.5" fill="#fff" stroke="#111" stroke-width="1.5"/><path d="m 11.5,37 c 5.5,3.5 15.5,3.5 21,0 v -7 c 0,0 9,-4.5 6,-10.5 -4,-1 -6,2 -6,2 0,0 0,-4 -6,-4 -6,0 -6,4 -6,4 0,0 -2,-3 -6,-2 -3,6 6,10.5 6,10.5 v 7 z" fill="#fff" stroke="#111" stroke-width="1.5"/></svg>',
+      
+      'bP': '<svg viewBox="0 0 45 45"><path d="m 22.5,9 c -2.21,0 -4,1.79 -4,4 0,0.89 0.29,1.71 0.78,2.38 C 17.33,16.5 16,18.59 16,21 c 0,2.03 0.94,3.84 2.41,5.03 C 15.41,27.09 11,31.58 11,39.5 l 23,0 c 0,-7.92 -4.41,-12.41 -7.41,-13.47 C 28.06,24.84 29,23.03 29,21 29,18.59 27.67,16.5 25.72,15.38 26.21,14.71 26.5,13.89 26.5,13 c 0,-2.21 -1.79,-4 -4,-4 z" fill="#222" stroke="#fff" stroke-width="1.3" stroke-linecap="round"/></svg>',
+      'bN': '<svg viewBox="0 0 45 45"><path d="m 22,10 c 10.5,1 16.5,8 16,29 L 15,39 C 15,30 18,25 21,23 15,22 13,17 14,14 15,11 18,10 22,10 z" fill="#222" stroke="#fff" stroke-width="1.3"/><circle cx="20" cy="15" r="1.5" fill="#fff"/></svg>',
+      'bB': '<svg viewBox="0 0 45 45"><path d="m 9,36 c 3.39,-0.97 10.11,0.43 13.5,-2 3.39,2.43 10.11,1.03 13.5,2 0,0 1.65,0.54 3,2 -0.68,0.97 -1.65,0.99 -3,1 -5.5,0 -14,-0.5 -24,0 -1.35,-0.01 -2.32,-0.03 -3,-1 1.35,-1.46 3,-2 3,-2 z" fill="#222" stroke="#fff" stroke-width="1.3"/><path d="m 15,32 c 2.5,2.5 12.5,2.5 15,0 .5,-1.5 0,-2 0,-2 0,-7.5 -2.5,-16 -7.5,-20 -5,4 -7.5,12.5 -7.5,20 0,0 -.5,.5 0,2 z" fill="#222" stroke="#fff" stroke-width="1.3"/><circle cx="22.5" cy="8" r="2" fill="#222" stroke="#fff" stroke-width="1.3"/></svg>',
+      'bR': '<svg viewBox="0 0 45 45"><path d="m 9,39 27,0 0,-3 -3,-2 0,-16 3,-2 0,-5 -4,0 0,3 -4,0 0,-3 -5,0 0,3 -4,0 0,-3 -7,0 0,5 3,2 0,16 -3,2 0,3 z" fill="#222" stroke="#fff" stroke-width="1.3"/><path d="m 12,36 21,0 m -18,-18 15,0" fill="none" stroke="#fff" stroke-width="1.1"/></svg>',
+      'bQ': '<svg viewBox="0 0 45 45"><path d="m 9,26 c 8.5,-1.5 21,-1.5 27,0 l 2,-12 -7,5 -4,-8 -4.5,8 -7,-5 2.5,12 z" fill="#222" stroke="#fff" stroke-width="1.3"/><path d="m 9,26 c 0,2 1.5,2 2.5,4 1,1.5 1,1 0.5,3.5 -1.5,1 -1.5,2.5 -1.5,2.5 -1.5,1.5 0.5,2.5 0.5,2.5 6.5,1 16.5,1 23,0 0,0 1.5,-1 0.5,-2.5 0,0 0,-1.5 -1.5,-2.5 -0.5,-2.5 -0.5,-2 0.5,-3.5 1,-2 2.5,-2 2.5,-4-8.5,-1.5 -18.5,-1.5 -27,0 z" fill="#222" stroke="#fff" stroke-width="1.3"/><circle cx="6" cy="12" r="2" fill="#222" stroke="#fff"/><circle cx="14" cy="9" r="2" fill="#222" stroke="#fff"/><circle cx="22.5" cy="6" r="2" fill="#222" stroke="#fff"/><circle cx="31" cy="9" r="2" fill="#222" stroke="#fff"/><circle cx="39" cy="12" r="2" fill="#222" stroke="#fff"/></svg>',
+      'bK': '<svg viewBox="0 0 45 45"><path d="m 22.5,11.63 0,5.38 M 20,13.5 l 5,0" fill="none" stroke="#fff" stroke-width="1.6"/><path d="m 22.5,25 c 0,0 4.5,-7.5 3,-10.5 -1.5,-3 -6,-3 -7.5,0 -1.5,3 3,10.5 3,10.5" fill="#222" stroke="#fff" stroke-width="1.3"/><path d="m 11.5,37 c 5.5,3.5 15.5,3.5 21,0 v -7 c 0,0 9,-4.5 6,-10.5 -4,-1 -6,2 -6,2 0,0 0,-4 -6,-4 -6,0 -6,4 -6,4 0,0 -2,-3 -6,-2 -3,6 6,10.5 6,10.5 v 7 z" fill="#222" stroke="#fff" stroke-width="1.3"/></svg>'
+    };
+
+    const AVATAR_PRESETS = [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80',
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80',
+      'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=150&q=80',
+      'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&q=80',
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80'
+    ];
+
+    // ================= ESTADO GLOBAL DEL USUARIO =================
+    const DEFAULT_PROFILE = {
+      nickname: 'Ajedrecista_' + Math.floor(Math.random() * 899 + 100),
+      avatar: AVATAR_PRESETS[0],
+      aperturaFavorita: 'Defensa Siciliana',
+      bio: 'Apasionado del ajedrez táctico y partidas rápidas.',
+      eloBullet: 800,
+      eloBlitz: 800,
+      eloRapido: 800,
+      amigos: ['GranMaestro_Colegio', 'KasparovJr'],
+      partidasJugadas: 0,
+      partidasGanadas: 0,
+      partidasPerdidas: 0,
+      misionesCompletadas: 0
+    };
+
+    let currentUser = loadLocalProfile();
+
+    function loadLocalProfile() {
+      try {
+        const saved = localStorage.getItem('chessmaster_user');
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+      return { ...DEFAULT_PROFILE };
+    }
+
+    function saveCurrentUserLocally() {
+      try {
+        localStorage.setItem('chessmaster_user', JSON.stringify(currentUser));
+      } catch (e) {}
+    }
+
+    // ================= MOTOR DE AJEDREZ Y PARTIDA =================
+    let chess = new Chess();
+    let currentMode = 'blitz'; // 'bullet', 'blitz', 'rapid'
+    let currentDifficulty = 'medium'; // 'easy', 'medium', 'hard'
+    let isFlipped = false;
+    let selectedSquare = null;
+    let pendingPromotionMove = null;
+    let lastMove = null;
+    let isGameActive = false;
+    let activeMissionId = null;
+
+    // Relojes
+    let timeWhite = 180;
+    let timeBlack = 180;
+    let timerInterval = null;
+
+    const MODE_TIMES = {
+      bullet: 60,
+      blitz: 180,
+      rapid: 600
+    };
+
+    const BOT_CONFIG = {
+      easy: { name: 'Bot Novato', elo: 600, badge: 'Novato', avatar: 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?auto=format&fit=crop&w=150&q=80' },
+      medium: { name: 'Bot Intermedio', elo: 1100, badge: 'Medio', avatar: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=150&q=80' },
+      hard: { name: 'Bot Gran Maestro', elo: 1650, badge: 'Avanzado', avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=150&q=80' }
+    };
+
+    // ================= INICIALIZACIÓN AL CARGAR =================
+    window.addEventListener('DOMContentLoaded', () => {
+      syncUserProfileUI();
+      renderAvatarPresets();
+      initBoardDOM();
+      startNewGame();
+      syncFirestoreUser();
+      renderLeaderboard();
+      updateMissionsProgression();
+    });
+
+    // ================= RENDERIZADO DEL TABLERO =================
+    function initBoardDOM() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+          const r = isFlipped ? row : 7 - row;
+          const c = isFlipped ? 7 - col : col;
+          const square = String.fromCharCode(97 + c) + (r + 1);
+          const isDark = (r + c) % 2 === 0;
+
+          const sqDiv = document.createElement('div');
+          sqDiv.id = 'sq-' + square;
+          sqDiv.className = `relative flex items-center justify-center aspect-square ${isDark ? 'square-dark' : 'square-light'}`;
+          sqDiv.dataset.square = square;
+
+          // Coordenadas
+          if (c === (isFlipped ? 7 : 0)) {
+            const rankLabel = document.createElement('span');
+            rankLabel.className = 'absolute top-0.5 left-1 text-[9px] font-bold opacity-60 pointer-events-none';
+            rankLabel.innerText = r + 1;
+            sqDiv.appendChild(rankLabel);
+          }
+          if (r === (isFlipped ? 7 : 0)) {
+            const fileLabel = document.createElement('span');
+            fileLabel.className = 'absolute bottom-0.5 right-1 text-[9px] font-bold opacity-60 pointer-events-none';
+            fileLabel.innerText = String.fromCharCode(97 + c);
+            sqDiv.appendChild(fileLabel);
+          }
+
+          // Eventos Click y Drag
+          sqDiv.addEventListener('click', () => onSquareClicked(square));
+          sqDiv.addEventListener('dragover', (e) => e.preventDefault());
+          sqDiv.addEventListener('drop', (e) => onSquareDrop(e, square));
+
+          boardEl.appendChild(sqDiv);
+        }
+      }
+      renderPieces();
+    }
+
+    function renderPieces() {
+      // Limpiar piezas anteriores y marcadores
+      document.querySelectorAll('.piece-img, .move-dot, .capture-ring').forEach(el => el.remove());
+      document.querySelectorAll('.square-selected, .square-lastmove, .square-check').forEach(el => {
+        el.classList.remove('square-selected', 'square-lastmove', 'square-check');
+      });
+
+      // Resaltar último movimiento
+      if (lastMove) {
+        const fromEl = document.getElementById('sq-' + lastMove.from);
+        const toEl = document.getElementById('sq-' + lastMove.to);
+        if (fromEl) fromEl.classList.add('square-lastmove');
+        if (toEl) toEl.classList.add('square-lastmove');
+      }
+
+      // Resaltar rey en jaque
+      if (chess.in_check()) {
+        const kingSq = findKingSquare(chess.turn());
+        const kingEl = document.getElementById('sq-' + kingSq);
+        if (kingEl) kingEl.classList.add('square-check');
+      }
+
+      // Dibujar piezas
+      const boardState = chess.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = boardState[r][c];
+          if (piece) {
+            const square = String.fromCharCode(97 + c) + (8 - r);
+            const sqEl = document.getElementById('sq-' + square);
+            if (sqEl) {
+              const pieceCode = piece.color + piece.type.toUpperCase();
+              const pWrapper = document.createElement('div');
+              pWrapper.className = 'piece-img flex items-center justify-center';
+              pWrapper.innerHTML = PIECE_SVGS[pieceCode] || '';
+              pWrapper.draggable = (piece.color === 'w'); // Sólo jugador arrastra blancas
+              pWrapper.dataset.square = square;
+
+              pWrapper.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('text/plain', square);
+                onSquareClicked(square);
+              });
+
+              sqEl.appendChild(pWrapper);
+            }
+          }
+        }
+      }
+    }
+
+    function findKingSquare(color) {
+      const b = chess.board();
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = b[r][c];
+          if (p && p.type === 'k' && p.color === color) {
+            return String.fromCharCode(97 + c) + (8 - r);
+          }
+        }
+      }
+      return null;
+    }
+
+    // ================= INTERACCIÓN DE JUGADA =================
+    function onSquareClicked(square) {
+      if (!isGameActive) return;
+      if (chess.turn() !== 'w') return; // Bloqueado durante turno de IA
+
+      // Si ya hay una casilla seleccionada
+      if (selectedSquare) {
+        if (selectedSquare === square) {
+          clearHighlights();
+          selectedSquare = null;
+          return;
+        }
+
+        // Intenta ejecutar movimiento
+        const moveAttempt = { from: selectedSquare, to: square };
+        // Detectar si requiere coronación
+        const piece = chess.get(selectedSquare);
+        if (piece && piece.type === 'p' && square.endsWith('8')) {
+          const legalMoves = chess.moves({ square: selectedSquare, verbose: true });
+          const isLegalProm = legalMoves.some(m => m.to === square);
+          if (isLegalProm) {
+            showPromotionModal(selectedSquare, square);
+            return;
+          }
+        }
+
+        const move = chess.move(moveAttempt);
+        if (move) {
+          executeMoveSuccess(move);
+          return;
+        }
+      }
+
+      // Si hace click en una pieza blanca propia
+      const clickedPiece = chess.get(square);
+      if (clickedPiece && clickedPiece.color === 'w') {
+        clearHighlights();
+        selectedSquare = square;
+        const sqEl = document.getElementById('sq-' + square);
+        if (sqEl) sqEl.classList.add('square-selected');
+        showLegalMoves(square);
+      } else {
+        clearHighlights();
+        selectedSquare = null;
+      }
+    }
+
+    function onSquareDrop(e, targetSquare) {
+      e.preventDefault();
+      const originSquare = e.dataTransfer.getData('text/plain');
+      if (!originSquare || !isGameActive || chess.turn() !== 'w') return;
+
+      const piece = chess.get(originSquare);
+      if (piece && piece.type === 'p' && targetSquare.endsWith('8')) {
+        const legalMoves = chess.moves({ square: originSquare, verbose: true });
+        if (legalMoves.some(m => m.to === targetSquare)) {
+          showPromotionModal(originSquare, targetSquare);
+          return;
+        }
+      }
+
+      const move = chess.move({ from: originSquare, to: targetSquare });
+      if (move) {
+        executeMoveSuccess(move);
+      } else {
+        clearHighlights();
+        selectedSquare = null;
+      }
+    }
+
+    function showLegalMoves(square) {
+      const legalMoves = chess.moves({ square: square, verbose: true });
+      legalMoves.forEach(m => {
+        const destEl = document.getElementById('sq-' + m.to);
+        if (destEl) {
+          if (m.captured) {
+            const ring = document.createElement('div');
+            ring.className = 'capture-ring';
+            destEl.appendChild(ring);
+          } else {
+            const dot = document.createElement('div');
+            dot.className = 'move-dot';
+            destEl.appendChild(dot);
+          }
+        }
+      });
+    }
+
+    function clearHighlights() {
+      document.querySelectorAll('.move-dot, .capture-ring').forEach(el => el.remove());
+      document.querySelectorAll('.square-selected').forEach(el => el.classList.remove('square-selected'));
+    }
+
+    function executeMoveSuccess(move) {
+      clearHighlights();
+      selectedSquare = null;
+      lastMove = move;
+
+      // Efectos de sonido
+      if (chess.in_check()) {
+        playCheckSound();
+      } else if (move.captured) {
+        playCaptureSound();
+      } else {
+        playMoveSound();
+      }
+
+      renderPieces();
+      updateGameHUD();
+      checkGameEnd();
+
+      if (isGameActive && chess.turn() === 'b') {
+        setTurnHUD('Pensando la IA...', false);
+        const delay = currentDifficulty === 'easy' ? 450 : currentDifficulty === 'medium' ? 700 : 950;
+        setTimeout(makeAIMove, delay);
+      }
+    }
+
+    // ================= CORONACIÓN =================
+    function showPromotionModal(from, to) {
+      pendingPromotionMove = { from, to };
+      const modal = document.getElementById('promotion-modal');
+      const optContainer = document.getElementById('promotion-options');
+      optContainer.innerHTML = '';
+
+      ['q', 'r', 'b', 'n'].forEach(type => {
+        const btn = document.createElement('button');
+        btn.className = 'w-14 h-14 bg-chessDarker hover:bg-chessDarkGreen p-1 rounded-xl border border-chessBorder transition transform hover:scale-105';
+        btn.innerHTML = PIECE_SVGS['w' + type.toUpperCase()];
+        btn.onclick = () => selectPromotionPiece(type);
+        optContainer.appendChild(btn);
+      });
+
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function selectPromotionPiece(type) {
+      document.getElementById('promotion-modal').classList.add('hidden');
+      document.getElementById('promotion-modal').classList.remove('flex');
+      if (pendingPromotionMove) {
+        const move = chess.move({
+          from: pendingPromotionMove.from,
+          to: pendingPromotionMove.to,
+          promotion: type
+        });
+        pendingPromotionMove = null;
+        if (move) executeMoveSuccess(move);
+      }
+    }
+
+    // ================= MOTOR DE INTELIGENCIA ARTIFICIAL (3 DIFICULTADES) =================
+    const PIECE_VALUES = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000 };
+
+    // Tablas de valores posicionales simples (Piece-Square Tables para Avanzado)
+    const PST_PAWN = [
+      0,  0,  0,  0,  0,  0,  0,  0,
+      50, 50, 50, 50, 50, 50, 50, 50,
+      10, 10, 20, 30, 30, 20, 10, 10,
+      5,  5, 10, 25, 25, 10,  5,  5,
+      0,  0,  0, 20, 20,  0,  0,  0,
+      5, -5,-10,  0,  0,-10, -5,  5,
+      5, 10, 10,-20,-20, 10, 10,  5,
+      0,  0,  0,  0,  0,  0,  0,  0
+    ];
+
+    const PST_KNIGHT = [
+      -50,-40,-30,-30,-30,-30,-40,-50,
+      -40,-20,  0,  0,  0,  0,-20,-40,
+      -30,  0, 10, 15, 15, 10,  0,-30,
+      -30,  5, 15, 20, 20, 15,  5,-30,
+      -30,  0, 15, 20, 20, 15,  0,-30,
+      -30,  5, 10, 15, 15, 10,  5,-30,
+      -40,-20,  0,  5,  5,  0,-20,-40,
+      -50,-40,-30,-30,-30,-30,-40,-50
+    ];
+
+    function makeAIMove() {
+      if (!isGameActive || chess.turn() !== 'b') return;
+
+      const legalMoves = chess.moves({ verbose: true });
+      if (legalMoves.length === 0) {
+        checkGameEnd();
+        return;
+      }
+
+      let chosenMove = null;
+
+      if (currentDifficulty === 'easy') {
+        // DIFICULTAD FÁCIL: Aleatorio legal con 15% de capturar pieza si se presenta
+        const captures = legalMoves.filter(m => m.captured);
+        if (captures.length > 0 && Math.random() < 0.25) {
+          chosenMove = captures[Math.floor(Math.random() * captures.length)];
+        } else {
+          chosenMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+        }
+      } else if (currentDifficulty === 'medium') {
+        // DIFICULTAD MEDIA: Prioriza capturas ventajosas y control del centro
+        let bestScore = -99999;
+        const centerSquares = ['d4', 'e4', 'd5', 'e5', 'c4', 'f4', 'c5', 'f5'];
+
+        legalMoves.forEach(m => {
+          let score = 0;
+          if (m.captured) {
+            const victimVal = PIECE_VALUES[m.captured] || 100;
+            const attackerVal = PIECE_VALUES[m.piece] || 100;
+            score += victimVal * 10 - attackerVal;
+          }
+          if (centerSquares.includes(m.to)) score += 25;
+          if (m.san.includes('+')) score += 15;
+          if (m.flags.includes('k') || m.flags.includes('q')) score += 40; // Enroque
+
+          score += Math.floor(Math.random() * 15); // Variación humana
+
+          if (score > bestScore) {
+            bestScore = score;
+            chosenMove = m;
+          }
+        });
+      } else {
+        // DIFICULTAD AVANZADA: Minimax con profundidad 2 y evaluación de material y posición
+        chosenMove = getBestMoveMinimax(2);
+      }
+
+      if (!chosenMove) {
+        chosenMove = legalMoves[0];
+      }
+
+      const move = chess.move(chosenMove);
+      if (move) {
+        executeMoveSuccess(move);
+        setTurnHUD('Tu turno (Blancas)', true);
+      }
+    }
+
+    function evaluateBoard(currentChess) {
+      let totalEval = 0;
+      const b = currentChess.board();
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const piece = b[r][c];
+          if (piece) {
+            let val = PIECE_VALUES[piece.type] || 0;
+            const sqIndex = r * 8 + c;
+
+            if (piece.type === 'p') val += (piece.color === 'w' ? PST_PAWN[63 - sqIndex] : PST_PAWN[sqIndex]);
+            if (piece.type === 'n') val += (piece.color === 'w' ? PST_KNIGHT[63 - sqIndex] : PST_KNIGHT[sqIndex]);
+
+            totalEval += (piece.color === 'w' ? val : -val);
+          }
+        }
+      }
+      return totalEval;
+    }
+
+    function getBestMoveMinimax(depth) {
+      let bestMove = null;
+      let bestValue = 999999; // Buscamos minimizar para negras
+      const legalMoves = chess.moves({ verbose: true });
+
+      // Ordenar jugadas: primero capturas y jaques para podar más rápido
+      legalMoves.sort((a, b) => (b.captured ? 100 : 0) - (a.captured ? 100 : 0));
+
+      for (let i = 0; i < legalMoves.length; i++) {
+        const move = legalMoves[i];
+        chess.move(move);
+        const value = minimax(depth - 1, -999999, 999999, true);
+        chess.undo();
+
+        if (value < bestValue) {
+          bestValue = value;
+          bestMove = move;
+        }
+      }
+      return bestMove;
+    }
+
+    function minimax(depth, alpha, beta, isMaximizing) {
+      if (depth === 0 || chess.game_over()) {
+        return evaluateBoard(chess);
+      }
+
+      const legalMoves = chess.moves({ verbose: true });
+
+      if (isMaximizing) { // Blancas
+        let maxEval = -999999;
+        for (let i = 0; i < legalMoves.length; i++) {
+          chess.move(legalMoves[i]);
+          const evalScore = minimax(depth - 1, alpha, beta, false);
+          chess.undo();
+          maxEval = Math.max(maxEval, evalScore);
+          alpha = Math.max(alpha, evalScore);
+          if (beta <= alpha) break;
+        }
+        return maxEval;
+      } else { // Negras
+        let minEval = 999999;
+        for (let i = 0; i < legalMoves.length; i++) {
+          chess.move(legalMoves[i]);
+          const evalScore = minimax(depth - 1, alpha, beta, true);
+          chess.undo();
+          minEval = Math.min(minEval, evalScore);
+          beta = Math.min(beta, evalScore);
+          if (beta <= alpha) break;
+        }
+        return minEval;
+      }
+    }
+
+    // ================= CONTROL DEL RELOJ Y TIEMPO =================
+    function startClocks() {
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        if (!isGameActive) return;
+
+        if (chess.turn() === 'w') {
+          timeWhite--;
+          if (timeWhite <= 0) {
+            timeWhite = 0;
+            updateClockDisplays();
+            handleTimeout('w');
+          }
+        } else {
+          timeBlack--;
+          if (timeBlack <= 0) {
+            timeBlack = 0;
+            updateClockDisplays();
+            handleTimeout('b');
+          }
+        }
+        updateClockDisplays();
+      }, 1000);
+    }
+
+    function updateClockDisplays() {
+      const formatTime = (seconds) => {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+
+      const wEl = document.getElementById('player-clock');
+      const bEl = document.getElementById('opponent-clock');
+
+      if (wEl) {
+        wEl.innerText = formatTime(timeWhite);
+        if (timeWhite < 15) {
+          wEl.classList.add('text-red-400', 'animate-pulse');
+        } else {
+          wEl.classList.remove('text-red-400', 'animate-pulse');
+        }
+      }
+
+      if (bEl) {
+        bEl.innerText = formatTime(timeBlack);
+        if (timeBlack < 15) {
+          bEl.classList.add('text-red-400', 'animate-pulse');
+        } else {
+          bEl.classList.remove('text-red-400', 'animate-pulse');
+        }
+      }
+    }
+
+    function handleTimeout(color) {
+      clearInterval(timerInterval);
+      isGameActive = false;
+      if (color === 'w') {
+        finishGame('loss', 'Tiempo agotado. Derrota por reloj.');
+      } else {
+        finishGame('win', '¡Tiempo del rival agotado! Victoria por reloj.');
+      }
+    }
+
+    // ================= FÓRMULA ESTÁNDAR DE ELO =================
+    function calculateNewElo(playerRating, opponentRating, actualScore) {
+      // actualScore: 1 = victoria, 0.5 = tablas, 0 = derrota
+      const K = 32;
+      const expectedScore = 1 / (1 + Math.pow(10, (opponentRating - playerRating) / 400));
+      const delta = Math.round(K * (actualScore - expectedScore));
+      return {
+        newRating: Math.max(100, playerRating + delta),
+        delta: delta
+      };
+    }
+
+    function getPlayerCurrentElo() {
+      if (currentMode === 'bullet') return currentUser.eloBullet || 800;
+      if (currentMode === 'rapid') return currentUser.eloRapido || 800;
+      return currentUser.eloBlitz || 800;
+    }
+
+    function setPlayerCurrentElo(newElo) {
+      if (currentMode === 'bullet') currentUser.eloBullet = newElo;
+      else if (currentMode === 'rapid') currentUser.eloRapido = newElo;
+      else currentUser.eloBlitz = newElo;
+    }
+
+    // ================= FIN DE PARTIDA Y PROCESAMIENTO =================
+    function checkGameEnd() {
+      if (chess.in_checkmate()) {
+        isGameActive = false;
+        clearInterval(timerInterval);
+        if (chess.turn() === 'b') {
+          finishGame('win', '¡Jaque Mate! Has vencido a tu oponente.');
+        } else {
+          finishGame('loss', 'Jaque Mate. Tu rey ha sido acorralado.');
+        }
+      } else if (chess.in_draw() || chess.in_stalemate() || chess.in_threefold_repetition() || chess.insufficient_material()) {
+        isGameActive = false;
+        clearInterval(timerInterval);
+        finishGame('draw', 'Tablas por ahogado o material insuficiente.');
+      }
+    }
+
+    function resignGame() {
+      if (!isGameActive) return;
+      if (confirm('¿Estás seguro de que deseas rendirte?')) {
+        isGameActive = false;
+        clearInterval(timerInterval);
+        finishGame('loss', 'Te has rendido.');
+      }
+    }
+
+    function offerDraw() {
+      if (!isGameActive) return;
+      // La IA evalúa la propuesta
+      const evalScore = evaluateBoard(chess);
+      if (Math.abs(evalScore) < 150) {
+        alert('🤝 Tu oponente ha aceptado las tablas.');
+        isGameActive = false;
+        clearInterval(timerInterval);
+        finishGame('draw', 'Tablas acordadas con el oponente.');
+      } else {
+        alert('❌ Tu oponente rechaza las tablas en esta posición.');
+      }
+    }
+
+    function finishGame(result, message) {
+      isGameActive = false;
+      clearInterval(timerInterval);
+
+      const bot = BOT_CONFIG[currentDifficulty];
+      const currentElo = getPlayerCurrentElo();
+      const score = result === 'win' ? 1 : result === 'draw' ? 0.5 : 0;
+
+      const eloCalc = calculateNewElo(currentElo, bot.elo, score);
+      setPlayerCurrentElo(eloCalc.newRating);
+
+      currentUser.partidasJugadas++;
+      if (result === 'win') currentUser.partidasGanadas++;
+      if (result === 'loss') currentUser.partidasPerdidas++;
+
+      saveCurrentUserLocally();
+      syncFirestoreUser();
+      syncUserProfileUI();
+      renderLeaderboard();
+
+      // Sonido y confeti
+      if (result === 'win') {
+        playGameOverSound(true);
+        if (typeof confetti === 'function') {
+          confetti({ particleCount: 90, spread: 70, origin: { y: 0.6 } });
+        }
+      } else {
+        playGameOverSound(false);
+      }
+
+      // Mostrar modal de resultado
+      showGameOverOverlay(result, message, eloCalc.delta, eloCalc.newRating);
+
+      // Si estábamos en misión del modo historia
+      if (activeMissionId) {
+        handleMissionOutcome(activeMissionId, result === 'win');
+      }
+    }
+
+    function showGameOverOverlay(result, message, delta, newElo) {
+      const overlay = document.getElementById('game-overlay');
+      const title = document.getElementById('overlay-title');
+      const desc = document.getElementById('overlay-desc');
+      const badge = document.getElementById('overlay-badge');
+      const mode = document.getElementById('overlay-mode');
+      const deltaEl = document.getElementById('overlay-elo-delta');
+      const newEloEl = document.getElementById('overlay-new-elo');
+
+      if (result === 'win') {
+        badge.innerHTML = '🏆';
+        badge.className = 'w-16 h-16 rounded-full bg-chessGreen/20 border-2 border-chessGreen flex items-center justify-center text-3xl mb-3 shadow-lg';
+        title.innerText = '¡Victoria!';
+        title.className = 'text-2xl sm:text-3xl font-extrabold text-chessGreen mb-1';
+        deltaEl.className = 'font-mono font-extrabold text-base text-chessGreen';
+        deltaEl.innerText = '+' + delta;
+      } else if (result === 'draw') {
+        badge.innerHTML = '🤝';
+        badge.className = 'w-16 h-16 rounded-full bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center text-3xl mb-3 shadow-lg';
+        title.innerText = 'Tablas';
+        title.className = 'text-2xl sm:text-3xl font-extrabold text-amber-400 mb-1';
+        deltaEl.className = 'font-mono font-extrabold text-base text-amber-400';
+        deltaEl.innerText = (delta >= 0 ? '+' : '') + delta;
+      } else {
+        badge.innerHTML = '🏳️';
+        badge.className = 'w-16 h-16 rounded-full bg-red-600/20 border-2 border-red-500 flex items-center justify-center text-3xl mb-3 shadow-lg';
+        title.innerText = 'Derrota';
+        title.className = 'text-2xl sm:text-3xl font-extrabold text-red-400 mb-1';
+        deltaEl.className = 'font-mono font-extrabold text-base text-red-400';
+        deltaEl.innerText = delta.toString();
+      }
+
+      desc.innerText = message;
+      mode.innerText = currentMode.toUpperCase();
+      newEloEl.innerText = newElo.toString();
+
+      overlay.classList.remove('hidden');
+      overlay.classList.add('flex');
+    }
+
+    function hideOverlay() {
+      const overlay = document.getElementById('game-overlay');
+      overlay.classList.add('hidden');
+      overlay.classList.remove('flex');
+    }
+
+    function startNewGame() {
+      hideOverlay();
+      chess.reset();
+      selectedSquare = null;
+      lastMove = null;
+      isGameActive = true;
+      activeMissionId = null;
+
+      timeWhite = MODE_TIMES[currentMode] || 180;
+      timeBlack = MODE_TIMES[currentMode] || 180;
+      updateClockDisplays();
+      startClocks();
+
+      clearHighlights();
+      renderPieces();
+      updateGameHUD();
+      setTurnHUD('Tu turno (Blancas)', true);
+    }
+
+    function flipBoard() {
+      isFlipped = !isFlipped;
+      initBoardDOM();
+    }
+
+    function changeGameMode(newMode) {
+      currentMode = newMode;
+      startNewGame();
+      syncUserProfileUI();
+    }
+
+    function changeDifficulty(diff) {
+      currentDifficulty = diff;
+      const bot = BOT_CONFIG[diff];
+      document.getElementById('opponent-name').innerText = bot.name;
+      document.getElementById('opponent-rating').innerText = `Elo ${bot.elo}`;
+      document.getElementById('opponent-difficulty-badge').innerText = bot.badge;
+      document.getElementById('opponent-avatar').src = bot.avatar;
+    }
+
+    function setTurnHUD(text, isPlayerTurn) {
+      const bullet = document.getElementById('turn-bullet');
+      const textEl = document.getElementById('turn-status-text');
+      if (textEl) textEl.innerText = text;
+      if (bullet) {
+        bullet.className = isPlayerTurn ? 'w-3 h-3 rounded-full bg-chessGreen animate-pulse' : 'w-3 h-3 rounded-full bg-amber-400 animate-pulse';
+      }
+    }
+
+    function updateGameHUD() {
+      // Capturas y diferencia de material
+      const history = chess.history({ verbose: true });
+      const whiteCaptured = [];
+      const blackCaptured = [];
+      let scoreWhite = 0;
+      let scoreBlack = 0;
+
+      history.forEach(m => {
+        if (m.captured) {
+          const val = PIECE_VALUES[m.captured] || 0;
+          if (m.color === 'w') {
+            blackCaptured.push(m.captured);
+            scoreWhite += val;
+          } else {
+            whiteCaptured.push(m.captured);
+            scoreBlack += val;
+          }
+        }
+      });
+
+      const playerCapturesDiv = document.getElementById('player-captures');
+      const opponentCapturesDiv = document.getElementById('opponent-captures');
+      const playerAdv = document.getElementById('player-advantage');
+      const opponentAdv = document.getElementById('opponent-advantage');
+
+      if (playerCapturesDiv) {
+        playerCapturesDiv.innerHTML = blackCaptured.map(p => `<span>${pieceUnicode('b', p)}</span>`).join('');
+      }
+      if (opponentCapturesDiv) {
+        opponentCapturesDiv.innerHTML = whiteCaptured.map(p => `<span>${pieceUnicode('w', p)}</span>`).join('');
+      }
+
+      const diff = scoreWhite - scoreBlack;
+      if (diff > 0) {
+        playerAdv.innerText = `+${Math.round(diff / 100)}`;
+        opponentAdv.innerText = '';
+      } else if (diff < 0) {
+        opponentAdv.innerText = `+${Math.round(Math.abs(diff) / 100)}`;
+        playerAdv.innerText = '';
+      } else {
+        playerAdv.innerText = '';
+        opponentAdv.innerText = '';
+      }
+
+      // Notación de movimientos
+      renderMovesHistory();
+
+      // Indicador de evaluación
+      const evalIndicator = document.getElementById('eval-indicator');
+      if (evalIndicator) {
+        const ev = evaluateBoard(chess);
+        const signed = (ev / 100).toFixed(1);
+        evalIndicator.innerText = (ev > 0 ? '+' : '') + signed;
+      }
+    }
+
+    function pieceUnicode(color, type) {
+      const map = {
+        'w': { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕', k: '♔' },
+        'b': { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' }
+      };
+      return map[color]?.[type] || '';
+    }
+
+    function renderMovesHistory() {
+      const movesContainer = document.getElementById('moves-history');
+      const countBadge = document.getElementById('move-count-badge');
+      const history = chess.history();
+
+      if (countBadge) countBadge.innerText = `${history.length} jugadas`;
+
+      if (history.length === 0) {
+        movesContainer.innerHTML = '<div class="text-gray-500 italic text-center py-6">Las jugadas aparecerán aquí...</div>';
+        return;
+      }
+
+      let html = '<div class="grid grid-cols-2 gap-x-2 gap-y-1">';
+      for (let i = 0; i < history.length; i += 2) {
+        const moveNum = Math.floor(i / 2) + 1;
+        const whiteMove = history[i] || '';
+        const blackMove = history[i + 1] || '';
+        html += `
+          <div class="flex items-center text-xs">
+            <span class="text-gray-500 w-6 font-semibold">${moveNum}.</span>
+            <span class="text-white font-bold w-12">${whiteMove}</span>
+            <span class="text-gray-300 font-semibold">${blackMove}</span>
+          </div>
+        `;
+      }
+      html += '</div>';
+      movesContainer.innerHTML = html;
+      movesContainer.scrollTop = movesContainer.scrollHeight;
+    }
+
+    // ================= MODO HISTORIA Y CINEMÁTICAS =================
+    const MISSIONS = [
+      {
+        id: 1,
+        title: 'Misión 1: Peón Rebelde',
+        difficulty: 'easy',
+        speaker: 'Vanguardia Rebelde',
+        speakerAvatar: '♟️',
+        dialog: '"¡No retrocederemos! La corte del Rey nos ha oprimido en primera fila durante milenios. ¡Es hora de que los peones alcancen la octava fila y tomen la corona!"',
+        banner: 'assets/intro.gif'
+      },
+      {
+        id: 2,
+        title: 'Misión 2: Emboscada de Caballos',
+        difficulty: 'medium',
+        speaker: 'Comandante de Caballería',
+        speakerAvatar: '♞',
+        dialog: '"Tus defensas son rígidas y predecibles. Mis jinetes saltarán sobre tus peones en forma de L antes de que alcances a coordinar tus torres. ¡Prepárate para la horquilla!"',
+        banner: 'assets/intro.gif'
+      },
+      {
+        id: 3,
+        title: 'Misión 3: Jaque al Gran Maestro',
+        difficulty: 'hard',
+        speaker: 'Gran Maestro Supremo',
+        speakerAvatar: '👑',
+        dialog: '"Has llegado al umbral de la Gran Catedral de Caissa. Pocos comprenden que cada casilla tiene alma y cada sacrificio es inmortalidad. Demuestra que mereces el título."',
+        banner: 'assets/intro.gif'
+      }
+    ];
+
+    let currentCinematicMission = null;
+
+    function launchMission(missionId) {
+      const mission = MISSIONS.find(m => m.id === missionId);
+      if (!mission) return;
+      currentCinematicMission = mission;
+
+      document.getElementById('cinematic-mission-tag').innerText = mission.title;
+      document.getElementById('cinematic-speaker-name').innerText = mission.speaker;
+      document.getElementById('cinematic-speaker-avatar').innerText = mission.speakerAvatar;
+      document.getElementById('cinematic-dialog-text').innerText = mission.dialog;
+
+      const modal = document.getElementById('modal-cinematic');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function skipCinematic() {
+      continueFromCinematic();
+    }
+
+    function continueFromCinematic() {
+      document.getElementById('modal-cinematic').classList.add('hidden');
+      document.getElementById('modal-cinematic').classList.remove('flex');
+
+      if (currentCinematicMission) {
+        activeMissionId = currentCinematicMission.id;
+        changeDifficulty(currentCinematicMission.difficulty);
+        switchView('play');
+        startNewGame();
+      }
+    }
+
+    function handleMissionOutcome(missionId, won) {
+      activeMissionId = null;
+      const modal = document.getElementById('modal-mission-result');
+      const title = document.getElementById('mission-result-title');
+      const desc = document.getElementById('mission-result-desc');
+      const img = document.getElementById('mission-result-img');
+      const icon = document.getElementById('mission-result-icon');
+
+      if (won) {
+        img.src = 'assets/victoria.jpg';
+        icon.innerText = '👑';
+        icon.className = 'w-14 h-14 mx-auto rounded-2xl bg-chessGreen border-2 border-white flex items-center justify-center text-3xl shadow-lg mb-3';
+        title.innerText = '¡Misión Cumplida!';
+        desc.innerText = `Has superado con gloria la prueba de la Misión ${missionId}. Se ha desbloqueado la siguiente etapa.`;
+        if (currentUser.misionesCompletadas < missionId) {
+          currentUser.misionesCompletadas = missionId;
+          saveCurrentUserLocally();
+          syncFirestoreUser();
+          updateMissionsProgression();
+        }
+      } else {
+        img.src = 'assets/derrota.jpg';
+        icon.innerText = '⚔️';
+        icon.className = 'w-14 h-14 mx-auto rounded-2xl bg-red-600 border-2 border-white flex items-center justify-center text-3xl shadow-lg mb-3';
+        title.innerText = 'Misión Fallida';
+        desc.innerText = 'El rival ha quebrado tu posición. Analiza tus errores y vuelve a intentarlo.';
+      }
+
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeMissionResult() {
+      document.getElementById('modal-mission-result').classList.add('hidden');
+      document.getElementById('modal-mission-result').classList.remove('flex');
+      switchView('story');
+    }
+
+    function updateMissionsProgression() {
+      const completed = currentUser.misionesCompletadas || 0;
+
+      // Misión 2
+      const btn2 = document.getElementById('mission-btn-2');
+      const badge2 = document.getElementById('mission-badge-2');
+      const card2 = document.getElementById('mission-card-2');
+      if (completed >= 1) {
+        btn2.disabled = false;
+        btn2.className = 'mt-4 w-full py-2 bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold rounded-xl transition shadow';
+        btn2.innerText = 'Iniciar Misión';
+        badge2.className = 'absolute -top-3 left-4 bg-chessGreen text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider';
+        badge2.innerText = 'Disponible';
+        card2.classList.remove('opacity-80');
+        card2.classList.add('border-chessGreen');
+      }
+
+      // Misión 3
+      const btn3 = document.getElementById('mission-btn-3');
+      const badge3 = document.getElementById('mission-badge-3');
+      const card3 = document.getElementById('mission-card-3');
+      if (completed >= 2) {
+        btn3.disabled = false;
+        btn3.className = 'mt-4 w-full py-2 bg-chessGreen hover:bg-chessDarkGreen text-white text-xs font-bold rounded-xl transition shadow';
+        btn3.innerText = 'Iniciar Misión';
+        badge3.className = 'absolute -top-3 left-4 bg-chessGreen text-white text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider';
+        badge3.innerText = 'Disponible';
+        card3.classList.remove('opacity-80');
+        card3.classList.add('border-chessGreen');
+      }
+    }
+
+    // ================= PERSISTENCIA Y CLASIFICACIÓN (FIRESTORE) =================
+    const DEMO_PLAYERS = [
+      { nickname: 'Magnus_Colegio', avatar: AVATAR_PRESETS[1], aperturaFavorita: 'Defensa Siciliana', eloBullet: 1250, eloBlitz: 1320, eloRapido: 1380 },
+      { nickname: 'HikaruTactics', avatar: AVATAR_PRESETS[2], aperturaFavorita: 'Gambito de Dama', eloBullet: 1290, eloBlitz: 1280, eloRapido: 1210 },
+      { nickname: 'ReinaGambito', avatar: AVATAR_PRESETS[0], aperturaFavorita: 'Ruy López', eloBullet: 1140, eloBlitz: 1190, eloRapido: 1250 },
+      { nickname: 'CaballoLoco99', avatar: AVATAR_PRESETS[3], aperturaFavorita: 'Defensa Francesa', eloBullet: 980, eloBlitz: 1050, eloRapido: 1090 },
+      { nickname: 'TorreInmortal', avatar: AVATAR_PRESETS[4], aperturaFavorita: 'Defensa Caro-Kann', eloBullet: 920, eloBlitz: 960, eloRapido: 1010 },
+      { nickname: 'AlfilMago', avatar: AVATAR_PRESETS[1], aperturaFavorita: 'India de Rey', eloBullet: 860, eloBlitz: 910, eloRapido: 950 }
+    ];
+
+    let currentLeaderboardFilter = 'blitz';
+
+    function setLeaderboardFilter(mode) {
+      currentLeaderboardFilter = mode;
+      ['bullet', 'blitz', 'rapid'].forEach(m => {
+        const btn = document.getElementById(`lb-tab-${m}`);
+        if (m === mode) {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition bg-chessGreen text-white shadow';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-lg text-xs font-bold transition text-gray-400 hover:text-white';
+        }
+      });
+      renderLeaderboard();
+    }
+
+    async function syncFirestoreUser() {
+      if (!isFirebaseReady || !db) return;
+      try {
+        await db.collection('jugadores').doc(currentUser.nickname).set({
+          nickname: currentUser.nickname,
+          avatar: currentUser.avatar,
+          aperturaFavorita: currentUser.aperturaFavorita,
+          bio: currentUser.bio,
+          eloBullet: currentUser.eloBullet || 800,
+          eloBlitz: currentUser.eloBlitz || 800,
+          eloRapido: currentUser.eloRapido || 800,
+          amigos: currentUser.amigos || [],
+          partidasJugadas: currentUser.partidasJugadas || 0,
+          partidasGanadas: currentUser.partidasGanadas || 0,
+          partidasPerdidas: currentUser.partidasPerdidas || 0,
+          misionesCompletadas: currentUser.misionesCompletadas || 0,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        console.log("Perfil sincronizado con Firestore exitosamente.");
+      } catch (err) {
+        console.warn("Fallo al escribir en Firestore, continuando con local:", err);
+      }
+    }
+
+    async function renderLeaderboard() {
+      const tbody = document.getElementById('leaderboard-body');
+      const eloKey = currentLeaderboardFilter === 'bullet' ? 'eloBullet' : currentLeaderboardFilter === 'rapid' ? 'eloRapido' : 'eloBlitz';
+      let players = [];
+
+      if (isFirebaseReady && db) {
+        try {
+          const snapshot = await db.collection('jugadores').orderBy(eloKey, 'desc').limit(10).get();
+          snapshot.forEach(doc => players.push(doc.data()));
+        } catch (e) {
+          console.warn("Fallo leyendo Firestore, usando demo players:", e);
+        }
+      }
+
+      if (players.length === 0) {
+        // Fallback enriquecido combinando demo players con usuario actual
+        players = [...DEMO_PLAYERS, {
+          nickname: currentUser.nickname,
+          avatar: currentUser.avatar,
+          aperturaFavorita: currentUser.aperturaFavorita,
+          eloBullet: currentUser.eloBullet,
+          eloBlitz: currentUser.eloBlitz,
+          eloRapido: currentUser.eloRapido
+        }];
+        players.sort((a, b) => (b[eloKey] || 800) - (a[eloKey] || 800));
+        players = players.slice(0, 10);
+      }
+
+      tbody.innerHTML = '';
+      players.forEach((p, idx) => {
+        const isCurrent = (p.nickname === currentUser.nickname);
+        const rankMedal = idx === 0 ? '🥇 1' : idx === 1 ? '🥈 2' : idx === 2 ? '🥉 3' : `${idx + 1}`;
+        const rating = p[eloKey] || 800;
+
+        const tr = document.createElement('tr');
+        tr.className = `border-b border-chessBorder/30 transition hover:bg-chessDarker ${isCurrent ? 'bg-chessGreen/10 font-bold' : ''}`;
+        tr.innerHTML = `
+          <td class="py-3 px-3 font-mono font-bold ${idx < 3 ? 'text-amber-400' : 'text-gray-400'}">${rankMedal}</td>
+          <td class="py-3 px-3">
+            <div class="flex items-center space-x-2.5">
+              <img src="${p.avatar || AVATAR_PRESETS[0]}" alt="${p.nickname}" class="w-7 h-7 rounded-full bg-chessGreen object-cover border border-chessBorder" />
+              <div>
+                <span class="text-white font-semibold">${p.nickname}</span>
+                ${isCurrent ? '<span class="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-chessGreen text-white font-bold">Tú</span>' : ''}
+              </div>
+            </div>
+          </td>
+          <td class="py-3 px-3 text-gray-300">${p.aperturaFavorita || 'Estándar'}</td>
+          <td class="py-3 px-3 text-right font-mono font-extrabold text-chessGreen">${rating}</td>
+          <td class="py-3 px-3 text-center">
+            ${isCurrent ? '-' : `<button onclick="addFriend('${p.nickname}')" class="px-2 py-1 bg-chessDarker hover:bg-chessBorder text-chessGreen font-bold rounded-lg border border-chessBorder transition">Añadir</button>`}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function refreshLeaderboard() {
+      renderLeaderboard();
+    }
+
+    // ================= PERFIL Y SISTEMA DE AMIGOS =================
+    function syncUserProfileUI() {
+      const nickEls = [document.getElementById('nav-user-nick'), document.getElementById('player-name')];
+      nickEls.forEach(el => { if (el) el.innerText = currentUser.nickname; });
+
+      const avEls = [document.getElementById('nav-user-avatar'), document.getElementById('player-avatar')];
+      avEls.forEach(el => { if (el) el.src = currentUser.avatar; });
+
+      const currentElo = getPlayerCurrentElo();
+      const ratingEls = [document.getElementById('player-rating'), document.getElementById('nav-user-elo-tag')];
+      if (ratingEls[0]) ratingEls[0].innerText = `Elo ${currentElo}`;
+      if (ratingEls[1]) ratingEls[1].innerText = `⚡ ${currentElo}`;
+
+      // Stats en modal
+      const bEl = document.getElementById('stats-elo-bullet');
+      const zEl = document.getElementById('stats-elo-blitz');
+      const rEl = document.getElementById('stats-elo-rapid');
+      const gamesEl = document.getElementById('stats-games-count');
+      const winsEl = document.getElementById('stats-wins-count');
+
+      if (bEl) bEl.innerText = (currentUser.eloBullet || 800).toString();
+      if (zEl) zEl.innerText = (currentUser.eloBlitz || 800).toString();
+      if (rEl) rEl.innerText = (currentUser.eloRapido || 800).toString();
+      if (gamesEl) gamesEl.innerText = (currentUser.partidasJugadas || 0).toString();
+      if (winsEl) winsEl.innerText = (currentUser.partidasGanadas || 0).toString();
+    }
+
+    function renderAvatarPresets() {
+      const container = document.getElementById('avatar-presets');
+      if (!container) return;
+      container.innerHTML = '';
+      AVATAR_PRESETS.forEach(url => {
+        const img = document.createElement('img');
+        img.src = url;
+        img.className = `w-10 h-10 rounded-full cursor-pointer border-2 transition transform hover:scale-110 object-cover ${currentUser.avatar === url ? 'border-chessGreen ring-2 ring-chessGreen/40' : 'border-chessBorder'}`;
+        img.onclick = () => {
+          currentUser.avatar = url;
+          document.getElementById('profile-input-avatar-url').value = '';
+          renderAvatarPresets();
+        };
+        container.appendChild(img);
+      });
+    }
+
+    function openProfileModal() {
+      document.getElementById('profile-input-nick').value = currentUser.nickname;
+      document.getElementById('profile-input-avatar-url').value = currentUser.avatar.startsWith('http') && !AVATAR_PRESETS.includes(currentUser.avatar) ? currentUser.avatar : '';
+      document.getElementById('profile-select-opening').value = currentUser.aperturaFavorita || 'Defensa Siciliana';
+      document.getElementById('profile-input-bio').value = currentUser.bio || '';
+
+      renderFriendsList();
+      syncUserProfileUI();
+
+      const modal = document.getElementById('modal-profile');
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+    }
+
+    function closeProfileModal() {
+      const modal = document.getElementById('modal-profile');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function saveUserProfile() {
+      const nick = document.getElementById('profile-input-nick').value.trim();
+      const customAv = document.getElementById('profile-input-avatar-url').value.trim();
+      const opening = document.getElementById('profile-select-opening').value;
+      const bio = document.getElementById('profile-input-bio').value.trim();
+
+      if (nick) currentUser.nickname = nick;
+      if (customAv) currentUser.avatar = customAv;
+      if (opening) currentUser.aperturaFavorita = opening;
+      if (bio) currentUser.bio = bio;
+
+      saveCurrentUserLocally();
+      syncFirestoreUser();
+      syncUserProfileUI();
+      renderLeaderboard();
+      closeProfileModal();
+    }
+
+    function addFriendFromInput() {
+      const input = document.getElementById('friend-search-input');
+      const nick = input.value.trim();
+      if (!nick) return;
+      addFriend(nick);
+      input.value = '';
+    }
+
+    function addFriend(nick) {
+      if (!currentUser.amigos) currentUser.amigos = [];
+      if (currentUser.amigos.includes(nick)) {
+        alert('Este jugador ya está en tu lista de amigos.');
+        return;
+      }
+      if (nick === currentUser.nickname) {
+        alert('No puedes agregarte a ti mismo.');
+        return;
+      }
+      currentUser.amigos.push(nick);
+      saveCurrentUserLocally();
+      syncFirestoreUser();
+      renderFriendsList();
+      alert(`¡${nick} ha sido añadido a tu lista de amigos!`);
+    }
+
+    function removeFriend(nick) {
+      currentUser.amigos = (currentUser.amigos || []).filter(f => f !== nick);
+      saveCurrentUserLocally();
+      syncFirestoreUser();
+      renderFriendsList();
+    }
+
+    function renderFriendsList() {
+      const container = document.getElementById('friends-list-container');
+      if (!container) return;
+      const friends = currentUser.amigos || [];
+
+      if (friends.length === 0) {
+        container.innerHTML = '<div class="text-xs text-gray-500 italic py-2">No has agregado amigos aún. Busca por nickname.</div>';
+        return;
+      }
+
+      container.innerHTML = '';
+      friends.forEach(f => {
+        const div = document.createElement('div');
+        div.className = 'flex items-center justify-between bg-chessDark px-3 py-1.5 rounded-xl border border-chessBorder text-xs';
+        div.innerHTML = `
+          <div class="flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-chessGreen"></span>
+            <span class="font-bold text-white">${f}</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="challengeFriend('${f}')" class="text-chessGreen hover:underline font-semibold">Desafiar</button>
+            <button onclick="removeFriend('${f}')" class="text-red-400 hover:text-red-300">✕</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function challengeFriend(nick) {
+      closeProfileModal();
+      document.getElementById('opponent-name').innerText = nick;
+      document.getElementById('opponent-rating').innerText = 'Elo ~' + Math.floor(Math.random() * 400 + 800);
+      document.getElementById('opponent-difficulty-badge').innerText = 'Amigo';
+      switchView('play');
+      startNewGame();
+    }
+
+    // ================= NAVEGACIÓN ENTRE VISTAS =================
+    function switchView(viewName) {
+      ['play', 'story', 'leaderboard'].forEach(v => {
+        const sec = document.getElementById(`view-${v}`);
+        const btn = document.getElementById(`nav-btn-${v}`);
+        if (v === viewName) {
+          sec.classList.remove('hidden');
+          sec.classList.add('flex');
+          if (btn) {
+            btn.className = 'px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all bg-chessGreen text-white';
+          }
+        } else {
+          sec.classList.add('hidden');
+          sec.classList.remove('flex');
+          if (btn) {
+            btn.className = 'px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all text-gray-300 hover:text-white hover:bg-chessBorder';
+          }
+        }
+      });
+      if (viewName === 'leaderboard') renderLeaderboard();
+      if (viewName === 'story') updateMissionsProgression();
+    }
+  </script>
+
+</body>
+</html>
