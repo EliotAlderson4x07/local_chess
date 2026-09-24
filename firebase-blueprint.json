@@ -1,0 +1,114 @@
+{
+  "entities": {
+    "Jugador": {
+      "title": "Jugador",
+      "description": "Perfil de usuario registrado en ChessMaster con estadísticas Elo y partidas",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "ID único de autenticación del usuario en Firebase"
+        },
+        "email": {
+          "type": "string",
+          "description": "Correo electrónico del usuario registrado"
+        },
+        "nickname": {
+          "type": "string",
+          "description": "Nombre de usuario o apodo en el tablero"
+        },
+        "avatar": {
+          "type": "string",
+          "description": "URL de la foto de perfil o avatar"
+        },
+        "aperturaFavorita": {
+          "type": "string",
+          "description": "Apertura favorita del jugador"
+        },
+        "bio": {
+          "type": "string",
+          "description": "Biografía o lema del jugador"
+        },
+        "eloBullet": {
+          "type": "number",
+          "description": "Puntuación Elo en modalidad Bullet"
+        },
+        "eloBlitz": {
+          "type": "number",
+          "description": "Puntuación Elo en modalidad Blitz"
+        },
+        "eloRapido": {
+          "type": "number",
+          "description": "Puntuación Elo en modalidad Rápido"
+        },
+        "eloClasico": {
+          "type": "number",
+          "description": "Puntuación Elo en modalidad Clásico"
+        },
+        "partidasJugadas": {
+          "type": "number",
+          "description": "Total de partidas jugadas"
+        },
+        "partidasGanadas": {
+          "type": "number",
+          "description": "Total de victorias"
+        },
+        "partidasPerdidas": {
+          "type": "number",
+          "description": "Total de derrotas"
+        },
+        "misionesCompletadas": {
+          "type": "number",
+          "description": "Número de misiones de historia completadas"
+        },
+        "isRegistered": {
+          "type": "boolean",
+          "description": "Indica si el jugador es un usuario registrado autenticado"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Fecha y hora de registro"
+        },
+        "ultimaConexion": {
+          "type": "string",
+          "description": "Última conexión registrada"
+        }
+      },
+      "required": ["uid", "nickname", "isRegistered"]
+    },
+    "Sala": {
+      "title": "Sala",
+      "description": "Sala para partidas multijugador online",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Identificador de la sala"
+        },
+        "name": {
+          "type": "string",
+          "description": "Nombre visible de la partida"
+        },
+        "mode": {
+          "type": "string",
+          "description": "Modalidad de juego competitiva"
+        },
+        "status": {
+          "type": "string",
+          "description": "Estado: waiting, playing, ended"
+        }
+      },
+      "required": ["id", "status"]
+    }
+  },
+  "firestore": {
+    "/jugadores/{userId}": {
+      "schema": "Jugador",
+      "description": "Perfiles y estadísticas de jugadores registrados que participan en la clasificación oficial"
+    },
+    "/salas/{roomId}": {
+      "schema": "Sala",
+      "description": "Salas de ajedrez multijugador en tiempo real"
+    }
+  }
+}
